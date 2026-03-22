@@ -118,7 +118,7 @@ def scrape_websites(
             logger.info(f"Scraping {provider_name}: {url}")
 
             # Call Firecrawl API to scrape the URL
-            scrape_result = app.scrape(url, formats=formats)
+            scrape_result = app.scrape(url, formats=formats)  # type: ignore
 
             # Handle both dict and object responses
             if hasattr(scrape_result, "model_dump"):
@@ -142,12 +142,12 @@ def scrape_websites(
             }
 
             # Check if scrape was successful
-            if scrape_result.get(
+            if scrape_result.get(  # type: ignore
                 "success", True
             ):  # Default True for backwards compatibility
                 # Save content for each format
                 for format_type in formats:
-                    content = scrape_result.get(format_type, "")
+                    content = scrape_result.get(format_type, "")  # type: ignore
                     if content:
                         # Create filename: {provider}_{format}.txt
                         filename = f"{provider_name}_{format_type}.txt"
@@ -161,7 +161,7 @@ def scrape_websites(
                         metadata["content_files"][format_type] = filename
 
                 # Extract title and description from metadata if available
-                result_metadata = scrape_result.get("metadata", {})
+                result_metadata = scrape_result.get("metadata", {})  # type: ignore
                 metadata["title"] = result_metadata.get("title", "")
                 metadata["description"] = result_metadata.get("description", "")
 
@@ -171,7 +171,7 @@ def scrape_websites(
 
             else:
                 # Log the error from scrape result
-                error_msg = scrape_result.get("error", "Unknown error")
+                error_msg = scrape_result.get("error", "Unknown error")  # type: ignore
                 logger.error(f"Failed to scrape {provider_name}: {error_msg}")
 
             # Always add metadata entry (even if failed, for tracking)
