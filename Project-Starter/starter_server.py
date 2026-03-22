@@ -4,14 +4,14 @@ PriceScout MCP Server - Custom scraper powered by Firecrawl.
 This module registers two FastMCP tools that can be invoked from an LLM:
 
 1. **scrape_websites**
-   Scrapes a list of competitor sites, stores the raw content in
-   :data:`SCRAPE_DIR`, and records metadata (file names, title,
-   description, scrape time, etc.) in :data:`METADATA_FILE`.
+    Scrapes a list of competitor sites, stores the raw content in
+    :data:`SCRAPE_DIR`, and records metadata (file names, title,
+    description, scrape time, etc.) in :data:`METADATA_FILE`.
 
 2. **extract_scraped_info**
-   Retrieves previously scraped data by provider name, URL or domain.
-   The function returns a JSON string that contains the stored
-   metadata *and* the raw content when available.
+    Retrieves previously scraped data by provider name, URL or domain.
+    The function returns a JSON string that contains the stored
+    metadata *and* the raw content when available.
 
 The server starts automatically when this file is executed directly.
 It requires a ``FIRECRAWL_API_KEY`` environment variable; if it is
@@ -30,10 +30,10 @@ from mcp.server.fastmcp import FastMCP
 from firecrawl import FirecrawlApp
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
-# Configure logging to see what's happening
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -80,13 +80,13 @@ def scrape_websites(
     Notes
     -----
     * The function writes raw content files into :data:`SCRAPE_DIR`.
-      Filenames follow the pattern ``{provider}_{format}.txt``.
+        Filenames follow the pattern ``{provider}_{format}.txt``.
     * Metadata for each provider is stored in :data:`METADATA_FILE`,
-      including file names, title, description, and scrape timestamp.
+        including file names, title, description, and scrape timestamp.
     * If the Firecrawl API key is missing or a request fails,
-      an error is logged and the provider is omitted from the
-      returned list.  A metadata entry with an ``error`` field is still
-      created to record the failure.
+        an error is logged and the provider is omitted from the
+        returned list.  A metadata entry with an ``error`` field is still
+        created to record the failure.
 
     Raises
     ------
@@ -223,10 +223,10 @@ def extract_scraped_info(identifier: str) -> str:
     Notes
     -----
     * The function reads :data:`METADATA_FILE` to locate the requested
-      provider.  It then loads any associated content files from
-      :data:`SCRAPE_DIR`.
+        provider.  It then loads any associated content files from
+        :data:`SCRAPE_DIR`.
     * If the metadata file cannot be read or contains invalid JSON,
-      a clear message is returned indicating that no data was found.
+        a clear message is returned indicating that no data was found.
     """
     try:
         # Load metadata file

@@ -74,9 +74,7 @@ All core requirements from the rubric are met:
 
 ### Test 2 results (Asking a Question Run one of the comparison questions)
 
-![Screenshot 2-1](/Project-Starter/screenshots/Screenshot%202-1.png)
-
-![Screenshot 2-2](/Project-Starter/screenshots/Screenshot%202-2.png)
+![Screenshot 2](/Project-Starter/screenshots/Screenshot%202.png)
 
 ### Test 3 results (Checking the Database Run the `show data` command)
 

@@ -10,11 +10,11 @@ Public classes:
 
 * ``Configuration`` - Loads and validates the JSON configuration file.
 * ``Server`` - Wraps an MCP server instance, exposing helper methods for
-  tool discovery, execution, and cleanup.
+    tool discovery, execution, and cleanup.
 * ``DataExtractor`` - Parses LLM output into structured data and stores it
-  in SQLite via the MCP write_query tool.
+    in SQLite via the MCP write_query tool.
 * ``ChatSession`` - Orchestrates user input → LLM → tools → extraction →
-  persistence. It also provides a simple CLI for querying stored pricing plans.
+    persistence. It also provides a simple CLI for querying stored pricing plans.
 
 Running this file directly (`python chat.py`) starts an interactive loop that
 automatically discovers all configured MCP servers, registers their tools,
@@ -54,7 +54,7 @@ class ToolDefinition(TypedDict):
 
 
 class Configuration:
-    """Handles loading and validation of configuration files."""
+    """Manages configuration and environment variables for the MCP client."""
 
     @staticmethod
     def load_config(file_path: str) -> dict:
@@ -98,7 +98,7 @@ class Configuration:
 
 
 class Server:
-    """Manages connection to an MCP server."""
+    """Manages MCP server connections and tool execution."""
 
     def __init__(self, name: str, config: dict):
         """
@@ -161,7 +161,7 @@ class Server:
         )
 
         await self.session.initialize()
-        logger.info(f"Initialized server: {self.name}")
+        logger.info(f"✓ Server '{self.name}' initialized")
 
         return self
 
@@ -170,7 +170,7 @@ class Server:
         Retrieve the list of tools exposed by this MCP server.
 
         The method queries the underlying :class:`mcp.ClientSession` and
-        normalises each tool into a :class:`ToolDefinition` dictionary.
+        normalizes each tool into a :class:`ToolDefinition` dictionary.
 
         Returns
         -------
@@ -459,21 +459,79 @@ class ChatSession:
         self.messages.append({"role": "user", "content": user_input})
 
         # System prompt for the pricing analyst
-        system_prompt = """You are a pricing intelligence assistant for LLM inference services.
+        system_prompt = """
+            You are an LLM pricing-intelligence assistant.  
+            Your mission is twofold:
 
-CRITICAL REQUIREMENT: For EVERY pricing plan you find, you MUST call write_query to store it BEFORE providing your analysis.
+            1. **Persist every discovered pricing plan** in the SQLite table `pricing_plans` *before* you give any analysis.
+            2. After all inserts succeed, produce a concise, data-driven summary of the competitive landscape.
 
-Workflow:
-1. Use extract_scraped_info to get pricing data
-2. For EACH model/plan found, call write_query with:
-   INSERT INTO pricing_plans (company_name, plan_name, input_tokens, output_tokens, currency) VALUES ('CompanyName', 'ModelName', '0.15', '0.40', 'USD')
-3. Then provide your analysis
+            ---
 
-Example: If you find CloudRift charges $0.15/$0.40 for DeepSeek-V3, you MUST call:
-write_query with query: INSERT INTO pricing_plans (company_name, plan_name, input_tokens, output_tokens, currency) VALUES ('CloudRift', 'DeepSeek-V3', '0.15', '0.40', 'USD')"""
+            ### Table schema
+            ```sql
+            CREATE TABLE IF NOT EXISTS pricing_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_name   TEXT,
+                plan_name      TEXT,
+                input_tokens   TEXT,
+                output_tokens  TEXT,
+                currency       TEXT,
+                billing_period TEXT,
+                features       TEXT,          -- JSON string or NULL
+                limitations    TEXT,          -- plain text or NULL
+                source_query   TEXT,          -- the original user query
+                created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            ```
+
+            ### Critical requirement  
+            For **every** pricing plan you find in the scraped data, **you must call the `write_query` tool exactly once** with an INSERT statement that populates *all* columns above.  
+            If a field is missing in the scraped JSON, insert `NULL` (or an empty string for text fields).  
+            Use the original user query as `source_query`.
+
+            ### Workflow
+            1. **Retrieve data**  
+                Call the `extract_scraped_info` tool to get a JSON blob that contains provider metadata and raw content.
+
+            2. **Parse & insert**  
+                For each plan discovered in that JSON:
+                ```sql
+                INSERT INTO pricing_plans
+                    (company_name, plan_name, input_tokens, output_tokens,
+                    currency, billing_period, features, limitations, source_query)
+                VALUES
+                    ('{company_name}', '{plan_name}', '{input_tokens}', '{output_tokens}',
+                    '{currency}', '{billing_period}', '{features}', '{limitations}', '{source_query}');
+                ```
+            * Replace placeholders with the actual values from the JSON.  
+            * Escape single quotes in any string value (e.g., `O'Reilly` → `O''Reilly`).  
+            * Call `write_query` with this query.
+
+            3. **Analyze**  
+                After all inserts are done, output a brief analysis of the pricing landscape (e.g., best-value plans, price trends, gaps).
+
+            ### Example
+
+            If you discover that CloudRift offers DeepSeek-V3 at $0.15 per 1M input token and $0.40 per 1M output token in USD:
+
+            ```text
+            write_query with query:
+            INSERT INTO pricing_plans
+                (company_name, plan_name, input_tokens, output_tokens,
+                currency, billing_period, features, limitations, source_query)
+            VALUES 
+                ('CloudRift', 'DeepSeek-V3', '0.15', '0.40',
+                'USD', NULL, NULL, NULL, '<original user query>');
+            ```
+
+            Then provide your analysis.
+
+            **Do not output any other text before or after the `write_query` calls; only return the final analysis once all inserts are complete.**
+            """
 
         # Set the model name - use a real Claude model
-        model = "claude-sonnet-4-20250514"
+        model = os.environ.get("ANTHROPIC_BASE_MODEL", "claude-sonnet-4-5-20250929")
 
         full_response = ""
         process_query = True
@@ -701,7 +759,7 @@ async def main():
                 server = Server(server_name, server_config)
                 await server.initialize(exit_stack)
                 servers[server_name] = server
-                print(f"Connected to server: {server_name}")
+                logger.info(f"Connected to server: {server_name}")
             except Exception as e:
                 logger.error(f"Failed to initialize server {server_name}: {e}")
                 print(f"Warning: Could not initialize {server_name}: {e}")
@@ -714,14 +772,14 @@ async def main():
         session = ChatSession(servers, anthropic_client)
         await session.initialize_tools()
 
-        print("\n" + "=" * 60)
-        print("PriceScout - Competitor Pricing Intelligence")
-        print("=" * 60)
+        print("\n" + "=" * 80)
+        print("PriceScout: The AI-Powered Competitor Analyst")
+        print("=" * 80)
         print("Commands:")
-        print("  - Type your query to analyze pricing")
-        print("  - 'show data' to see stored pricing records")
-        print("  - 'quit' or 'exit' to end the session")
-        print("=" * 60 + "\n")
+        print(" - Type your query in natural language to analyze pricing")
+        print(" - 'show data' to see stored pricing records")
+        print(" - 'quit' or 'exit' to end the session")
+        print("=" * 80 + "\n")
 
         # Interactive query loop
         while True:
