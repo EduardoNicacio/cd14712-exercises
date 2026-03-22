@@ -3,7 +3,7 @@
     "provider": "cloudrift",
     "url": "https://www.cloudrift.ai/inference",
     "domain": "www.cloudrift.ai",
-    "scrape_time": "2026-03-21T21:48:52.542858",
+    "scraped_at": "2026-03-21T22:10:02.348852",
     "content_files": {
       "markdown": "cloudrift_markdown.txt",
       "html": "cloudrift_html.txt"
@@ -15,7 +15,7 @@
     "provider": "deepinfra",
     "url": "https://deepinfra.com/pricing",
     "domain": "deepinfra.com",
-    "scrape_time": "2026-03-21T21:48:53.289686",
+    "scraped_at": "2026-03-21T22:10:03.085301",
     "content_files": {
       "markdown": "deepinfra_markdown.txt",
       "html": "deepinfra_html.txt"
@@ -27,7 +27,7 @@
     "provider": "fireworks",
     "url": "https://fireworks.ai/pricing#serverless-pricing",
     "domain": "fireworks.ai",
-    "scrape_time": "2026-03-21T21:46:16.329429",
+    "scraped_at": "2026-03-21T22:08:39.777164",
     "content_files": {
       "markdown": "fireworks_markdown.txt",
       "html": "fireworks_html.txt"
@@ -39,7 +39,7 @@
     "provider": "groq",
     "url": "https://groq.com/pricing",
     "domain": "groq.com",
-    "scrape_time": "2026-03-21T21:46:16.902704",
+    "scraped_at": "2026-03-21T22:08:40.356151",
     "content_files": {
       "markdown": "groq_markdown.txt",
       "html": "groq_html.txt"

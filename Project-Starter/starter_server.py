@@ -97,7 +97,7 @@ def scrape_websites(
       contains:
         - ``provider``: the key from ``websites``.
         - ``url`` and ``domain`` extracted from the URL.
-        - ``scrape_time`` in ISO-8601 format.
+        - ``scraped_at`` in ISO-8601 format.
         - ``content_files`` mapping each requested format to its file name.
         - ``title`` and ``description`` if Firecrawl supplied them.
       Even failed scrapes are recorded with an empty ``content_files``
@@ -154,7 +154,7 @@ def scrape_websites(
                 "provider": provider_name,
                 "url": url,
                 "domain": domain,
-                "scrape_time": datetime.now().isoformat(),
+                "scraped_at": datetime.now().isoformat(),
                 "content_files": {},
                 "title": "",
                 "description": "",
@@ -189,7 +189,7 @@ def scrape_websites(
                 "provider": provider_name,
                 "url": url,
                 "domain": urlparse(url).netloc,
-                "scrape_time": datetime.now().isoformat(),
+                "scraped_at": datetime.now().isoformat(),
                 "content_files": {},
                 "title": "",
                 "description": "",
@@ -227,7 +227,7 @@ def extract_scraped_info(identifier: str) -> str:
     str
         A pretty-printed JSON string containing:
           - All metadata stored during scraping (provider, url,
-            domain, scrape_time, title, description, etc.).
+            domain, scraped_at, title, description, etc.).
           - If available, a ``content`` dictionary mapping each format to
             the raw text read from the corresponding file.
         If no matching entry is found or the metadata file cannot be read,
