@@ -1,0 +1,117 @@
+# High-Performance LLM  Inference at Low Cost
+
+Serve models like Llama 4 and DeepSeek 3.1 with our high-performance GPU platform. Our Inference APIs make it simple to scale your projects and pay only for what you need.
+
+[Run Inference](https://console.cloudrift.ai/inference) [View Docs](https://docs.cloudrift.ai/)
+
+![DeepSeek-V3.1 logo](https://storage.googleapis.com/cloudrift-resources/images/logo/deepseek.svg)
+
+### DeepSeek-V3.1
+
+$0.15 in \| $0.50 out163.84K Context
+
+Rivals closed models on math and code; open weights, vetted safety, and low pricing simplify enterprise deployment.
+
+[Get API Key](https://console.cloudrift.ai/inference)
+
+![Kimi-K2-Instruct logo](https://storage.googleapis.com/cloudrift-resources/images/logo/kimi.svg)
+
+### Kimi-K2-Instruct
+
+$0.30 in \| $1.75 out131.07K Context
+
+Kimi K2 is a mixture-of-experts (MoE) language model with 1 trillion total parameters. Kimi K2 excels at knowledge, reasoning, and coding tasks, with strong agentic capabilities.
+
+[Get API Key](https://console.cloudrift.ai/inference)
+
+![DeepSeek-R1-0528 logo](https://storage.googleapis.com/cloudrift-resources/images/logo/deepseek.svg)
+
+### DeepSeek-R1-0528
+
+$0.25 in \| $1.00 out163.84K Context
+
+May 28th update to the original DeepSeek R1 Performance on par with OpenAI o1, but open-sourced and with fully open reasoning tokens.
+
+[Get API Key](https://console.cloudrift.ai/inference)
+
+### Quick Start
+
+TypeScriptPythonCurl
+
+```
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  baseURL: "https://inference.cloudrift.ai/v1",
+  apiKey: "YOUR_RIFT_API_KEY",
+});
+
+const completion = await openai.chat.completions.create({
+  model: "llama4:maverick",
+  messages: [\
+    {\
+      role: "user",\
+      content: "What is the meaning of life?"\
+    }\
+  ],
+  stream: true,
+});
+
+for await (const chunk of completion) {
+  process.stdout.write(chunk.choices[0]?.delta.content as string);
+}
+```
+
+Models
+
+## All Available Models
+
+Cost-effective access to high-performance models — no queues, no GPUs to reserve. Just straightforward model options you can build on.
+
+![DeepSeek-V3.1 logo](https://storage.googleapis.com/cloudrift-resources/images/logo/deepseek.svg)
+
+### DeepSeek-V3.1
+
+$0.15 in \| $0.50 out163.84K Context
+
+Rivals closed models on math and code; open weights, vetted safety, and low pricing simplify enterprise deployment.
+
+[Get API Key](https://console.cloudrift.ai/inference)
+
+![Kimi-K2-Instruct logo](https://storage.googleapis.com/cloudrift-resources/images/logo/kimi.svg)
+
+### Kimi-K2-Instruct
+
+$0.30 in \| $1.75 out131.07K Context
+
+Kimi K2 is a mixture-of-experts (MoE) language model with 1 trillion total parameters. Kimi K2 excels at knowledge, reasoning, and coding tasks, with strong agentic capabilities.
+
+[Get API Key](https://console.cloudrift.ai/inference)
+
+![DeepSeek-R1-0528 logo](https://storage.googleapis.com/cloudrift-resources/images/logo/deepseek.svg)
+
+### DeepSeek-R1-0528
+
+$0.25 in \| $1.00 out163.84K Context
+
+May 28th update to the original DeepSeek R1 Performance on par with OpenAI o1, but open-sourced and with fully open reasoning tokens.
+
+[Get API Key](https://console.cloudrift.ai/inference)
+
+![DeepSeek-V3 logo](https://storage.googleapis.com/cloudrift-resources/images/logo/deepseek.svg)
+
+### DeepSeek-V3
+
+$0.15 in \| $0.40 out163.84K Context
+
+Rivals closed models on math and code; open weights, vetted safety, and low pricing simplify enterprise deployment.
+
+[Get API Key](https://console.cloudrift.ai/inference)
+
+Get in touch
+
+## Ready to get started?
+
+Get in touch with our team to discuss your requirements and find the right solution for your infrastructure.
+
+[Contact Us](https://www.cloudrift.ai/contact) [View Pricing](https://www.cloudrift.ai/pricing)

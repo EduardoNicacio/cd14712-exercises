@@ -1,295 +1,219 @@
 """
-PriceScout MCP Client - Interactive chatbot that talks to multiple MCP servers,
-leverages Anthropic's Claude LLM for natural-language processing, and extracts
-structured pricing data from the LLM responses.
+PriceScout MCP Client
 
-The module is organized around four public classes:
+This module implements an interactive chatbot that communicates with multiple
+MCP (Machine-Learning Control Plane) servers, uses Anthropic's Claude LLM to
+interpret natural language queries, and persists extracted pricing data in a
+SQLite database.
 
-* ``Configuration`` - Loads environment variables and validates the
-  required `ANTHROPIC_API_KEY`.
-* ``Server`` - Wraps a single MCP server instance (via :class:`mcp.ClientSession`)
-  and exposes helper methods for tool discovery, execution and cleanup.
-* ``DataExtractor`` - Uses Claude to parse LLM output into a JSON schema,
-  then stores the data in an SQLite-backed MCP server.
-* ``ChatSession`` - Orchestrates the end-to-end flow: user → LLM → tools →
-  extraction → persistence.  It also implements a simple CLI for
-  querying and displaying stored pricing plans.
+Public classes:
 
-Running this file directly (`python chat.py`) starts the interactive
-chatbot loop; it will automatically discover all configured MCP servers,
-register their tools, and expose them to the user.
+* ``Configuration`` - Loads and validates the JSON configuration file.
+* ``Server`` - Wraps an MCP server instance, exposing helper methods for
+  tool discovery, execution, and cleanup.
+* ``DataExtractor`` - Parses LLM output into structured data and stores it
+  in SQLite via the MCP write_query tool.
+* ``ChatSession`` - Orchestrates user input → LLM → tools → extraction →
+  persistence. It also provides a simple CLI for querying stored pricing plans.
+
+Running this file directly (`python chat.py`) starts an interactive loop that
+automatically discovers all configured MCP servers, registers their tools,
+and exposes them to the user.
 """
 
-import asyncio
-import json
-import logging
-from logging.handlers import RotatingFileHandler
 import os
-import shutil
-from contextlib import AsyncExitStack
-from typing import Any, List, Dict, TypedDict
-from datetime import datetime, timedelta
-from pathlib import Path
-import re
+import json
 import ast
+import asyncio
+import logging
+from datetime import timedelta
+from typing import Any, TypedDict
+from contextlib import AsyncExitStack
 
-from dotenv import load_dotenv
-from anthropic import Anthropic
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from anthropic import Anthropic
+from dotenv import load_dotenv
 
-# --------------------------------------------------------------------------- #
-# Configuration & global objects
-# --------------------------------------------------------------------------- #
+# Load environment variables
+load_dotenv()
 
-load_dotenv()  # Load environment variables from .env file
-
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_BASE_MODEL = os.environ.get(
-    "ANTHROPIC_BASE_MODEL", "claude-sonnet-4-5-20250929"
-)
-ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://claude.vocareum.com")
 
-
+# Type definition for tool info
 class ToolDefinition(TypedDict):
-    """Typed dictionary representing a tool's metadata."""
-
     name: str
     description: str
     input_schema: dict
 
 
-# --------------------------------------------------------------------------- #
-# Helper classes
-# --------------------------------------------------------------------------- #
-
-
 class Configuration:
-    """
-    Load and validate configuration for the MCP client.
-
-    The class is responsible for:
-
-    * Loading environment variables from ``.env`` (via :func:`dotenv.load_dotenv`).
-    * Reading a JSON configuration file that describes the MCP servers to
-      connect to.
-    * Exposing the Anthropic API key as a property, raising an informative
-      exception if it is missing.
-
-    The configuration file must contain a top-level ``mcpServers`` object,
-    e.g.::
-
-        {
-            "mcpServers": {
-                "llm_inference": {
-                    "command": "npx",
-                    "args": ["--port", "8000"],
-                    "env": {"VAR1": "value"}
-                }
-            }
-        }
-
-    Attributes
-    ----------
-    api_key : str | None
-        The Anthropic API key read from the environment.
-    """
-
-    def __init__(self) -> None:
-        """Initialise configuration with environment variables."""
-        self.load_env()
-        self.api_key = os.getenv("ANTHROPIC_API_KEY")
+    """Handles loading and validation of configuration files."""
 
     @staticmethod
-    def load_env() -> None:
-        """Load environment variables from a ``.env`` file."""
-        load_dotenv()
-
-    @staticmethod
-    def load_config(file_path: str | Path) -> dict[str, Any]:
+    def load_config(file_path: str) -> dict:
         """
-        Load server configuration from JSON file.
+        Load a JSON configuration file and validate its contents.
+
+        The configuration must contain an ``mcpServers`` key mapping server names
+        to their respective command, arguments, and environment variables.
+        Any deviation from this structure will raise a descriptive exception.
 
         Parameters
         ----------
-        file_path : str | pathlib.Path
+        file_path : str
             Path to the JSON configuration file.
 
         Returns
         -------
-        dict[str, Any]
-            Dictionary containing server configuration.
+        dict
+            The parsed and validated configuration dictionary.
 
         Raises
         ------
         FileNotFoundError
-            If the configuration file does not exist.
-        json.JSONDecodeError
-            If the file contains invalid JSON.
+            If the specified file does not exist.
         ValueError
-            If the required ``mcpServers`` key is missing.
+            If the file contains invalid JSON or is missing required keys.
         """
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, "r") as f:
                 config = json.load(f)
-
-            if "mcpServers" not in config:
-                raise ValueError("Configuration file is missing 'mcpServers' field")
-
-            return config
-
         except FileNotFoundError:
             raise FileNotFoundError(f"Configuration file not found: {file_path}")
         except json.JSONDecodeError as e:
-            raise json.JSONDecodeError(
-                f"Invalid JSON in configuration file: {e}"
-            )  # type: ignore
+            raise ValueError(f"Invalid JSON in configuration file: {e}")
 
-    @property
-    def anthropic_api_key(self) -> str:
-        """
-        Return the Anthropic API key.
+        # Validate that mcpServers key exists
+        if "mcpServers" not in config:
+            raise ValueError("Configuration must contain 'mcpServers' key")
 
-        Raises
-        ------
-        ValueError
-            If ``ANTHROPIC_API_KEY`` is not set in the environment.
-        """
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
-        return self.api_key
+        return config
 
 
 class Server:
-    """Wraps a single MCP server instance and exposes helper methods."""
+    """Manages connection to an MCP server."""
 
-    def __init__(self, name: str, config: dict[str, Any]) -> None:
+    def __init__(self, name: str, config: dict):
         """
         Create a new :class:`Server` instance.
 
         Parameters
         ----------
         name : str
-            Human-readable identifier for the server.
-        config : dict[str, Any]
-            Dictionary containing configuration options such as command,
-            arguments, and environment variables.
+            Identifier for the server (e.g., ``'llm_inference'`` or ``'sqlite'``).
+        config : dict
+            Server configuration containing command, args, and optional env.
         """
-        self.name: str = name
-        self.config: dict[str, Any] = config
-        self.stdio_context: Any | None = None
+        self.name = name
+        self.config = config
         self.session: ClientSession | None = None
-        self._cleanup_lock: asyncio.Lock = asyncio.Lock()
-        self.exit_stack: AsyncExitStack = AsyncExitStack()
+        self._read_stream = None
+        self._write_stream = None
 
-    async def initialize(self) -> None:
+    async def initialize(self, exit_stack: AsyncExitStack) -> "Server":
         """
-        Initialise the MCP server connection.
+        Establish a connection to the MCP server.
 
-        The method resolves the command to run (``npx`` or a custom shell
-        script), creates :class:`StdioServerParameters`, and then opens an
-        asynchronous stdio transport via :func:`stdio_client`.  A
-        :class:`ClientSession` is created on top of that transport.
+        The method creates a stdio client based on the provided command and
+        environment variables, then initializes an :class:`mcp.ClientSession`
+        that will be used for all subsequent tool interactions.
 
-        Raises
-        ------
-        ValueError
-            If the command cannot be resolved.
-        RuntimeError
-            If any step in the connection chain fails; the error is logged,
-            resources are cleaned up, and the exception is re-raised.
-        """
-        command = (
-            shutil.which("npx")
-            if self.config["command"] == "npx"
-            else self.config["command"]
-        )
-        if command is None:
-            raise ValueError("The command must be a valid string and cannot be None.")
-
-        server_params = StdioServerParameters(
-            command=command,
-            args=self.config["args"],
-            env=(
-                {**os.environ, **self.config["env"]} if self.config.get("env") else None
-            ),
-        )
-        try:
-            stdio_transport = await self.exit_stack.enter_async_context(
-                stdio_client(server_params)
-            )
-            read, write = stdio_transport
-            session = await self.exit_stack.enter_async_context(
-                ClientSession(read, write)
-            )
-            await session.initialize()
-            self.session = session
-            logging.info(f"✓ Server '{self.name}' initialized")
-        except Exception as e:
-            logging.error(f"Error initializing server {self.name}: {e}")
-            await self.cleanup()
-            raise
-
-    async def list_tools(self) -> List[ToolDefinition]:
-        """
-        Retrieve the list of tools exposed by this MCP server.
+        Parameters
+        ----------
+        exit_stack : AsyncExitStack
+            Context manager stack used to automatically close streams when
+            the application exits.
 
         Returns
         -------
-        List[ToolDefinition]
-            A list of dictionaries containing ``name``, ``description`` and
-            ``input_schema`` for each tool.
-
-        Raises
-        ------
-        RuntimeError
-            If the server has not been initialised.
+        Server
+            The initialized server instance (self) for method chaining.
         """
-        if not self.session:
-            raise RuntimeError(f"Server {self.name} is not initialized")
+        # Get command from config
+        command = self.config.get("command")
 
+        # Create server parameters with command, args, and environment
+        server_params = StdioServerParameters(
+            command=command,  # type: ignore
+            args=self.config.get("args", []),
+            env=(
+                {**os.environ, **self.config.get("env", {})}
+                if self.config.get("env")
+                else None
+            ),
+        )
+
+        # Create stdio client connection
+        self._read_stream, self._write_stream = await exit_stack.enter_async_context(
+            stdio_client(server_params)
+        )
+
+        # Create and initialize session
+        self.session = await exit_stack.enter_async_context(
+            ClientSession(self._read_stream, self._write_stream)
+        )
+
+        await self.session.initialize()
+        logger.info(f"Initialized server: {self.name}")
+
+        return self
+
+    async def list_tools(self) -> list[ToolDefinition]:
+        """
+        Retrieve the list of tools exposed by this MCP server.
+
+        The method queries the underlying :class:`mcp.ClientSession` and
+        normalises each tool into a :class:`ToolDefinition` dictionary.
+
+        Returns
+        -------
+        list[ToolDefinition]
+            A list containing name, description, and input schema for each tool.
+        """
+        # Check if session exists
+        if not self.session:
+            raise RuntimeError(f"Server {self.name} not initialized")
+
+        # Call the session to get tools
         tools_response = await self.session.list_tools()
 
-        tools: List[ToolDefinition] = []
+        # Format the response into our ToolDefinition format
+        tools = []
         for tool in tools_response.tools:
-            schema = tool.inputSchema or {}
-            if "type" not in schema:
-                schema = {**schema, "type": "object", "properties": {}}
+            tool_def: ToolDefinition = {
+                "name": tool.name,
+                "description": tool.description or "",
+                "input_schema": tool.inputSchema,
+            }
+            tools.append(tool_def)
 
-            tools.append(
-                {
-                    "name": tool.name,
-                    "description": tool.description,  # type: ignore
-                    "input_schema": schema,
-                }
-            )
         return tools
 
     async def execute_tool(
-        self,
-        tool_name: str,
-        arguments: dict[str, Any],
-        retries: int = 3,
-        delay: float = 1.0,
+        self, tool_name: str, arguments: dict, max_retries: int = 3
     ) -> Any:
         """
-        Execute a tool with retry logic.
+        Execute a named tool on the MCP server with retry logic.
+
+        The method attempts to call the specified tool up to ``max_retries``
+        times, waiting briefly between attempts. A timeout of 60 seconds is
+        applied to each individual call.
 
         Parameters
         ----------
         tool_name : str
-            Name of the tool to execute.
-        arguments : dict[str, Any]
-            Arguments for the tool.
-        retries : int, default 3
-            Number of retry attempts before giving up.
-        delay : float, default 1.0
-            Seconds to wait between retries.
+            Name of the tool to invoke.
+        arguments : dict
+            Dictionary of arguments to pass to the tool.
+        max_retries : int, optional
+            Maximum number of retry attempts (default: 3).
 
         Returns
         -------
@@ -299,543 +223,537 @@ class Server:
         Raises
         ------
         RuntimeError
-            If the server has not been initialised.
-        Exception
-            Propagated after exhausting all retry attempts.
+            If the tool fails after all retry attempts or if the server is not
+            initialized.
         """
         if not self.session:
-            raise RuntimeError(f"Server {self.name} is not initialized")
+            raise RuntimeError(f"Server {self.name} not initialized")
 
-        for attempt in range(retries + 1):
+        last_error = None
+
+        # Retry loop
+        for attempt in range(max_retries):
             try:
                 logging.info(f"Executing {tool_name}...")
-                result = await asyncio.wait_for(
-                    self.session.call_tool(name=tool_name, arguments=arguments),
-                    timeout=60,
+
+                # Call the tool with 60-second timeout
+                result = await self.session.call_tool(
+                    name=tool_name,
+                    arguments=arguments,
+                    read_timeout_seconds=timedelta(seconds=60),
                 )
+
                 return result
-            except Exception as e:
-                if attempt < retries:
-                    logging.warning(
-                        f"Tool execution failed (attempt "
-                        f"{attempt + 1}/{retries + 1}): {e}"
-                    )
-                    await asyncio.sleep(delay)
-                else:
-                    logging.error(
-                        f"Tool execution failed after {retries + 1} attempts: {e}"
-                    )
-                    raise
 
-    async def cleanup(self) -> None:
-        """
-        Close all resources associated with this server.
-
-        The method is idempotent; it can be called multiple times
-        without side effects.  Any exception during the close process
-        is logged but not re-raised.
-        """
-        async with self._cleanup_lock:
-            try:
-                await self.exit_stack.aclose()
-                self.session = None
-                self.stdio_context = None
             except Exception as e:
-                logging.error(f"Error during cleanup of server {self.name}: {e}")
+                last_error = e
+                logger.warning(
+                    f"Attempt {attempt + 1}/{max_retries} failed for {tool_name}: {e}"
+                )
+
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)  # Brief pause before retry
+
+        raise RuntimeError(
+            f"Tool {tool_name} failed after {max_retries} attempts: {last_error}"
+        )
 
 
 class DataExtractor:
-    """Handles extraction and storage of structured data from LLM responses."""
+    """Handles extraction and storage of pricing data to SQLite."""
 
-    def __init__(self, sqlite_server: Server, anthropic_client: Anthropic):
+    def __init__(self, sqlite_server: Server):
         """
-        Initialise the extractor.
+        Create a new :class:`DataExtractor` instance.
 
         Parameters
         ----------
         sqlite_server : Server
-            Instance used for executing SQL queries against an SQLite MCP server.
-        anthropic_client : Anthropic
-            Client used to communicate with Claude for structured extraction.
+            Reference to the MCP server that exposes ``write_query`` for
+            interacting with the SQLite database.
         """
         self.sqlite_server = sqlite_server
-        self.anthropic = anthropic_client
 
-    async def setup_data_tables(self) -> None:
-        """Create the ``pricing_plans`` table if it does not already exist."""
+    async def ensure_table_exists(self):
+        """Create the pricing_plans table if it doesn't exist."""
+        create_table_sql = """
+        CREATE TABLE IF NOT EXISTS pricing_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_name TEXT,
+            plan_name TEXT,
+            input_tokens TEXT,
+            output_tokens TEXT,
+            currency TEXT,
+            billing_period TEXT,
+            features TEXT,
+            limitations TEXT,
+            source_query TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
         try:
             await self.sqlite_server.execute_tool(
-                "write_query",
-                {
-                    "query": """
-                        CREATE TABLE IF NOT EXISTS pricing_plans (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            company_name TEXT NOT NULL,
-                            plan_name TEXT NOT NULL,
-                            input_tokens REAL,
-                            output_tokens REAL,
-                            currency TEXT DEFAULT 'USD',
-                            billing_period TEXT,  -- 'monthly', 'yearly', 'one-time'
-                            features TEXT,        -- JSON array
-                            limitations TEXT,
-                            source_query TEXT,
-                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """
-                },
+                "write_query", {"query": create_table_sql}
             )
-            logging.info("✓ Data extraction tables initialized")
         except Exception as e:
-            logging.error(f"Failed to setup data tables: {e}")
+            logger.error(f"Error creating table: {e}")
 
-    async def _get_structured_extraction(self, prompt: str) -> str:
-        """Ask Claude to return a plain text representation of the pricing data.
+    async def extract_and_store_data(self, pricing_data: dict, user_query: str) -> str:
+        """
+        Insert pricing plans into the SQLite database.
+
+        The method first ensures that the ``pricing_plans`` table exists,
+        then iterates over each plan in ``pricing_data['plans']``, inserting
+        a row for each. Any insertion errors are logged but do not abort
+        the entire operation.
 
         Parameters
         ----------
-        prompt : str
-            Prompt sent to the LLM for extraction.
+        pricing_data : dict
+            Dictionary containing ``company_name`` and a list of plan
+            dictionaries.
+        user_query : str
+            The original query that prompted this extraction, stored as
+            ``source_query``.
 
         Returns
         -------
         str
-            The raw text returned by Claude.  If an error occurs,
-            a JSON string containing ``{"error": "extraction failed"}`` is
-            returned instead.
+            A status message indicating how many plans were inserted.
         """
-        try:
-            response = self.anthropic.messages.create(
-                max_tokens=1024,
-                model=ANTHROPIC_BASE_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-            )
+        await self.ensure_table_exists()
 
-            text_content = ""
-            for content in response.content:
-                if content.type == "text":
-                    text_content += content.text
+        inserted = 0
 
-            return text_content.strip()
-        except Exception as e:
-            logging.error(f"Error in structured extraction: {e}")
-            return '{"error": "extraction failed"}'
-
-    async def extract_and_store_data(
-        self,
-        user_query: str,
-        llm_response: str,
-        source_url: str | None = None,  # type: ignore
-    ) -> None:
-        """
-        Parse the LLM response into JSON and persist it in SQLite.
-
-        Parameters
-        ----------
-        user_query : str
-            Original query submitted by the user.
-        llm_response : str
-            Raw text returned by Claude.
-        source_url : str | None, optional
-            URL of the source document (if any).
-
-        Returns
-        -------
-        None
-            The method writes to the ``pricing_plans`` table and logs
-            progress; it does not return a value.
-
-        Notes
-        -----
-        * The prompt is constructed so that Claude returns a JSON object
-          with a top-level ``plans`` array.  If the response contains no
-          plans, the method simply logs the fact and exits.
-        * All string values are escaped for SQL to avoid injection issues.
-        """
-        try:
-            extraction_prompt = f"""
-                Analyze this text and extract pricing information in JSON format:
-
-                Text: {llm_response}
-
-                Extract pricing plans with this structure:
-                {{
-                    "company_name": "company name",
-                    "plans": [
-                        {{
-                            "plan_name": "plan name",
-                            "input_tokens": number or null,
-                            "output_tokens": number or null,
-                            "currency": "USD",
-                            "billing_period": "monthly/yearly/one-time",
-                            "features": ["feature1", "feature2"],
-                            "limitations": "any limitations mentioned",
-                            "query": "the user's query"
-                        }}
-                    ]
-                }}
-
-                Return only valid JSON, no other text. Do not return your response
-                enclosed in ```json```.
-            """
-
-            extraction_response = await self._get_structured_extraction(
-                extraction_prompt
-            )
-            extraction_response = (
-                extraction_response.replace("```json\n", "").replace("```", "").strip()
-            )
-
-            if not extraction_response or "no pricing" in extraction_response.lower():
-                logger.info("No pricing data found in response")
-                return
-
-            pricing_data = json.loads(extraction_response)
-
-            if not pricing_data.get("plans"):
-                logger.info("No pricing plans extracted")
-                return
-
-            for plan in pricing_data.get("plans", []):
-                company = pricing_data.get("company_name", "Unknown").replace("'", "''")
-                plan_name = plan.get("plan_name", "Unknown Plan").replace("'", "''")
-                limitations = str(plan.get("limitations", "")).replace("'", "''")
-                query_escaped = user_query.replace("'", "''")
-                features = json.dumps(plan.get("features", [])).replace("'", "''")
-
+        # Iterate through the plans in pricing_data
+        for plan in pricing_data.get("plans", []):
+            try:
+                # Execute the write_query to insert data
                 await self.sqlite_server.execute_tool(
                     "write_query",
                     {
                         "query": f"""
-                            INSERT INTO pricing_plans (
-                                company_name,
-                                plan_name,
-                                input_tokens,
-                                output_tokens,
-                                currency,
-                                billing_period,
-                                features,
-                                limitations,
-                                source_query
-                            )
-                            VALUES (
-                                '{company}',
-                                '{plan_name}',
-                                '{plan.get("input_tokens", 0)}',
-                                '{plan.get("output_tokens", 0)}',
-                                '{plan.get("currency", "USD")}',
-                                '{plan.get("billing_period", "unknown")}',
-                                '{features}',
-                                '{limitations}',
-                                '{query_escaped}'
-                            )
-                        """
+                    INSERT INTO pricing_plans (company_name, plan_name, input_tokens, output_tokens, currency, billing_period, features, limitations, source_query)
+                    VALUES (
+                        '{pricing_data.get("company_name", "Unknown")}',
+                        '{plan.get("plan_name", "Unknown Plan")}',
+                        '{plan.get("input_tokens", 0)}',
+                        '{plan.get("output_tokens", 0)}',
+                        '{plan.get("currency", "USD")}',
+                        '{plan.get("billing_period", "unknown")}',
+                        '{json.dumps(plan.get("features", []))}',
+                        '{plan.get("limitations", "")}',
+                        '{user_query}'
+                    )
+                    """
                     },
                 )
+                inserted += 1
+            except Exception as e:
+                logger.error(f"Error inserting plan {plan.get('plan_name')}: {e}")
 
-            logger.info(f"Stored {len(pricing_data.get('plans', []))} pricing plans")
-        except json.JSONDecodeError as e:
-            logger.debug(f"Could not parse pricing data as JSON: {e}")
-        except Exception as e:
-            logger.debug(f"Could not extract pricing data: {e}")
+        return f"Inserted {inserted} pricing plans into database"
 
 
 class ChatSession:
-    """Orchestrates the interaction between user, LLM and tools."""
+    """Manages interactive chat session with LLM and MCP tools."""
 
-    def __init__(self, servers: list[Server], api_key: str) -> None:
+    def __init__(self, servers: dict[str, Server], anthropic_client: Anthropic):
         """
-        Initialise chat session with available servers and Anthropic client.
+        Create a new :class:`ChatSession`.
 
         Parameters
         ----------
-        servers : List[Server]
-            MCP server instances to connect to.
-        api_key : str
-            API key for the Anthropic LLM service.
+        servers : dict[str, Server]
+            Mapping of server names to their corresponding :class:`Server`
+            instances.
+        anthropic_client : Anthropic
+            Instance of the Anthropic API client used for LLM interactions.
         """
-        self.servers: list[Server] = servers
-        self.anthropic = Anthropic(base_url=ANTHROPIC_BASE_URL, api_key=api_key)
-        self.available_tools: List[ToolDefinition] = []
-        self.tool_to_server: Dict[str, str] = {}
-        self.sqlite_server: Server | None = None
-        self.data_extractor: DataExtractor | None = None
+        self.servers = servers
+        self.anthropic = anthropic_client
+        self.messages: list[dict] = []
+        self.all_tools: list[dict] = []
+        self.tool_to_server: dict[str, Server] = {}
 
-    async def cleanup_servers(self) -> None:
-        """Close all servers in reverse order of initialization."""
-        for server in reversed(self.servers):
+        # Get sqlite server for data extraction
+        self.sqlite_server = servers.get("sqlite")
+        if self.sqlite_server:
+            self.data_extractor = DataExtractor(self.sqlite_server)
+        else:
+            self.data_extractor = None
+
+    async def initialize_tools(self):
+        """Gather tools from all servers and build mapping."""
+        # Ensure pricing_plans table exists at startup
+        if self.sqlite_server:
             try:
-                await server.cleanup()
-            except Exception as e:
-                logging.warning(f"Warning during final cleanup: {e}")
-
-    async def process_query(self, query: str) -> None:
-        """
-        Send a user query to Claude and handle the resulting tool calls.
-
-        Parameters
-        ----------
-        query : str
-            The natural-language question or request from the user.
-        """
-        messages = [{"role": "user", "content": query}]
-        response = self.anthropic.messages.create(
-            max_tokens=2024,
-            model=ANTHROPIC_BASE_MODEL,
-            tools=self.available_tools,  # type: ignore
-            messages=messages,  # type: ignore
-        )
-
-        full_response = ""
-        source_url = None
-        used_web_search = False
-
-        i = 0
-        max_iterations = 5
-        process_query = True
-
-        while process_query and i < max_iterations:
-            if response.content is None:
-                logger.error("API returned None content")
-                process_query = False
-                break
-
-            assistant_content = list(response.content)
-            tool_results: list[dict[str, Any]] = []
-
-            for content in response.content:
-                if content.type == "text":
-                    full_response = content.text + "\n"
-                elif content.type == "tool_use":
-                    tool_id = content.id
-                    tool_args = content.input
-                    tool_name = content.name
-
-                    if tool_name in self.tool_to_server:
-                        server_name = self.tool_to_server[tool_name]
-                        for _server in self.servers:
-                            if _server.name == server_name:
-                                tool_result = await _server.execute_tool(
-                                    tool_name, tool_args  # type: ignore
-                                )
-
-                                result_text = ""
-                                if tool_result.content and len(tool_result.content) > 0:
-                                    result_text = (
-                                        tool_result.content[0].text
-                                        if hasattr(tool_result.content[0], "text")
-                                        else str(tool_result.content[0])
-                                    )
-                                    if len(result_text) > 6000:
-                                        result_text = (
-                                            result_text[:6000]
-                                            + "\n\n[Truncated for context management]"
-                                        )
-                                else:
-                                    result_text = "Tool returned no content"
-
-                                tool_results.append(
-                                    {
-                                        "type": "tool_result",
-                                        "tool_use_id": tool_id,
-                                        "content": result_text,
-                                    }
-                                )
-                                break
-                    else:
-                        logger.warning(f"Unknown tool: {tool_name}")
-
-            if response.stop_reason == "end_turn":
-                process_query = False
-            elif tool_results:
-                messages.append(
-                    {"role": "assistant", "content": assistant_content}  # type: ignore
-                )  # type: ignore
-                messages.append({"role": "user", "content": tool_results})  # type: ignore
-
-                new_response = self.anthropic.messages.create(
-                    max_tokens=2024,
-                    model=ANTHROPIC_BASE_MODEL,
-                    tools=self.available_tools,  # type: ignore
-                    messages=messages,  # type: ignore
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS pricing_plans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_name TEXT,
+                    plan_name TEXT,
+                    input_tokens TEXT,
+                    output_tokens TEXT,
+                    currency TEXT,
+                    billing_period TEXT,
+                    features TEXT,
+                    limitations TEXT,
+                    source_query TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+                await self.sqlite_server.execute_tool(
+                    "write_query", {"query": create_table_sql}
                 )
-                response = new_response
+                logger.info("Ensured pricing_plans table exists")
+            except Exception as e:
+                logger.error(f"Error creating pricing_plans table: {e}")
 
-                if new_response.content:
-                    logger.info(
-                        f"Response stop_reason: {new_response.stop_reason}, "
-                        f"content types: {[c.type for c in new_response.content]}"
+        for server_name, server in self.servers.items():
+            try:
+                tools = await server.list_tools()
+                for tool in tools:
+                    tool_name = tool["name"]
+                    # Ensure input_schema has required 'type' field
+                    input_schema = tool.get("input_schema", {})
+                    if not input_schema or "type" not in input_schema:
+                        input_schema = {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                        }
+                    self.all_tools.append(
+                        {
+                            "name": tool_name,
+                            "description": tool.get("description", ""),
+                            "input_schema": input_schema,
+                        }
                     )
-                else:
-                    logger.error(
-                        f"API returned None content. Stop reason: {new_response.stop_reason}"
-                    )
-                    process_query = False
-            else:
-                process_query = False
+                    self.tool_to_server[tool_name] = server
+                    logger.info(f"Registered tool: {tool_name} from {server_name}")
+            except Exception as e:
+                logger.error(f"Error listing tools from {server_name}: {e}")
 
-            i += 1
-
-        if full_response.strip():
-            print(full_response.strip())
-
-        if self.data_extractor and full_response.strip():
-            await self.data_extractor.extract_and_store_data(
-                query, full_response.strip(), source_url  # type: ignore
-            )
-
-    def _extract_url_from_result(self, result_text: str) -> str | None:
+    async def process_query(self, user_input: str) -> str:
         """
-        Extract the first URL found in a block of text.
+        Process a user query through the agentic loop.
+
+        The method sends the user's message to Claude, handles any tool calls
+        returned by the model, executes those tools via the appropriate MCP
+        server, and finally returns the LLM's textual response.  Tool results
+        are fed back into the conversation so that subsequent LLM turns can
+        incorporate them.
 
         Parameters
         ----------
-        result_text : str
-            Text content returned by a tool.
+        user_input : str
+            The raw text entered by the user.
 
         Returns
         -------
-        str | None
-            The first matching URL or ``None`` if no URL is present.
+        str
+            The final, fully rendered answer from Claude.
         """
-        url_pattern = r"https?://[^\s<>\"{}|\\^`\[\]]+"
-        urls = re.findall(url_pattern, result_text)
-        return urls[0] if urls else None
+        # Add user message to conversation
+        self.messages.append({"role": "user", "content": user_input})
 
-    async def chat_loop(self) -> None:
-        """Run an interactive chat loop."""
-        print("\nMCP Chatbot with Data Extraction Started!")
-        print("Type your queries, 'show data' to view stored data, or 'quit' to exit.")
+        # System prompt for the pricing analyst
+        system_prompt = """You are a pricing intelligence assistant for LLM inference services.
 
-        while True:
-            try:
-                query = input("\nQuery: ").strip()
+CRITICAL REQUIREMENT: For EVERY pricing plan you find, you MUST call write_query to store it BEFORE providing your analysis.
 
-                if query.lower() == "quit":
-                    break
-                elif query.lower() == "show data":
-                    await self.show_stored_data()
-                    continue
+Workflow:
+1. Use extract_scraped_info to get pricing data
+2. For EACH model/plan found, call write_query with:
+   INSERT INTO pricing_plans (company_name, plan_name, input_tokens, output_tokens, currency) VALUES ('CompanyName', 'ModelName', '0.15', '0.40', 'USD')
+3. Then provide your analysis
 
-                await self.process_query(query)
-                print("\n")
+Example: If you find CloudRift charges $0.15/$0.40 for DeepSeek-V3, you MUST call:
+write_query with query: INSERT INTO pricing_plans (company_name, plan_name, input_tokens, output_tokens, currency) VALUES ('CloudRift', 'DeepSeek-V3', '0.15', '0.40', 'USD')"""
 
-            except KeyboardInterrupt:
-                print("\nExiting...")
-                break
-            except Exception as e:
-                print(f"\nError: {str(e)}")
+        # Set the model name - use a real Claude model
+        model = "claude-sonnet-4-20250514"
 
-    async def show_stored_data(self) -> None:
-        """Display the most recent pricing plans stored in SQLite."""
+        full_response = ""
+        process_query = True
+
+        while process_query:
+            # Call the Anthropic API
+            response = self.anthropic.messages.create(
+                model=model,
+                max_tokens=4096,
+                system=system_prompt,
+                tools=self.all_tools,  # type: ignore
+                messages=self.messages,  # type: ignore
+            )
+
+            assistant_content = []
+
+            # Process each content block in the response
+            for content in response.content:
+                if content.type == "text":
+                    # Add text to full response
+                    full_response += content.text + "\n"
+                    # Add to assistant content
+                    assistant_content.append(content)
+
+                    # If this is the only content, the model is done
+                    if len(response.content) == 1:
+                        process_query = False
+
+                elif content.type == "tool_use":
+                    # Step 1: Append the tool use request to assistant content
+                    assistant_content.append(content)
+
+                    # Add assistant message with tool calls
+                    self.messages.append(
+                        {"role": "assistant", "content": assistant_content}
+                    )
+
+                    # Step 2: Get tool id, args, and name
+                    tool_id = content.id
+                    tool_name = content.name
+                    tool_args = content.input
+
+                    logger.info(f"Tool call: {tool_name}")
+                    logger.debug(f"Tool args: {tool_args}")
+
+                    # Step 3: Find the server that has this tool
+                    if tool_name in self.tool_to_server:
+                        server = self.tool_to_server[tool_name]
+
+                        # Step 4: Execute the tool
+                        try:
+                            result = await server.execute_tool(tool_name, tool_args)  # type: ignore
+
+                            # Extract text from result
+                            if hasattr(result, "content"):
+                                result_text = ""
+                                for item in result.content:
+                                    if hasattr(item, "text"):
+                                        result_text += item.text
+                                tool_result = result_text
+                            else:
+                                tool_result = str(result)
+
+                            # Truncate tool result to avoid rate limits (max ~8000 chars)
+                            MAX_TOOL_RESULT_LENGTH = 8000
+                            if len(tool_result) > MAX_TOOL_RESULT_LENGTH:
+                                tool_result = (
+                                    tool_result[:MAX_TOOL_RESULT_LENGTH]
+                                    + "\n\n[... truncated due to length ...]"
+                                )
+                                logger.info(
+                                    f"Truncated {tool_name} result to {MAX_TOOL_RESULT_LENGTH} chars"
+                                )
+
+                        except Exception as e:
+                            tool_result = f"Error: {str(e)}"
+                            logger.error(f"Tool execution error: {e}")
+                    else:
+                        tool_result = f"Error: Unknown tool {tool_name}"
+
+                    # Step 5: Append the tool result to messages
+                    self.messages.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_id,
+                                    "content": tool_result,
+                                }
+                            ],
+                        }
+                    )
+
+                    # Step 6: Call the model again with new messages
+                    response = self.anthropic.messages.create(
+                        model=model,
+                        max_tokens=4096,
+                        system=system_prompt,
+                        tools=self.all_tools,  # type: ignore
+                        messages=self.messages,  # type: ignore
+                    )
+
+                    # Step 7: Check if next response is text only
+                    if (
+                        len(response.content) == 1
+                        and response.content[0].type == "text"
+                    ):
+                        full_response += response.content[0].text + "\n"
+                        self.messages.append(
+                            {"role": "assistant", "content": response.content}
+                        )
+                        process_query = False
+                    else:
+                        # Continue processing - reset assistant_content for next iteration
+                        assistant_content = []
+
+        return full_response.strip()
+
+    async def show_stored_data(self):
+        """Query and display stored pricing records from SQLite in a clean, readable format."""
         if not self.sqlite_server:
-            logger.info("No database available")
+            print("SQLite server not available")
             return
 
         try:
+            # Ensure the pricing_plans table exists
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS pricing_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_name TEXT,
+                plan_name TEXT,
+                input_tokens TEXT,
+                output_tokens TEXT,
+                currency TEXT,
+                billing_period TEXT,
+                features TEXT,
+                limitations TEXT,
+                source_query TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+            await self.sqlite_server.execute_tool(
+                "write_query", {"query": create_table_sql}
+            )
+
+            # Execute the read query to get pricing data
             pricing = await self.sqlite_server.execute_tool(
                 "read_query",
                 {
-                    "query": (
-                        "SELECT company_name, plan_name, input_tokens, "
-                        "output_tokens, currency FROM pricing_plans "
-                        "ORDER BY created_at DESC LIMIT 5"
-                    )
+                    "query": "SELECT company_name, plan_name, input_tokens, output_tokens, currency FROM pricing_plans ORDER BY created_at DESC LIMIT 10"
                 },
             )
 
-            print("\nRecently Stored Data:")
-            print("=" * 50)
-            print("\nPricing Plans:")
+            print("\n" + "=" * 60)
+            print("Stored Pricing Data")
+            print("=" * 60)
 
-            if pricing.content and len(pricing.content) > 0:
-                result_text = (
-                    pricing.content[0].text
-                    if hasattr(pricing.content[0], "text")
-                    else str(pricing.content[0])
-                )
+            # The result.content is a list with items containing text
+            rows_found = False
+            if hasattr(pricing, "content") and pricing.content:
+                for item in pricing.content:
+                    if hasattr(item, "text"):
+                        # Parse the result - may be JSON or Python literal format
+                        rows = None
+                        try:
+                            rows = json.loads(item.text)
+                        except json.JSONDecodeError:
+                            # SQLite server may return Python repr format (single quotes)
+                            try:
+                                rows = ast.literal_eval(item.text)
+                            except (ValueError, SyntaxError):
+                                pass
 
-                if not result_text or result_text.strip() in ("[]", ""):
-                    print("  No pricing data found")
-                    return
+                        if rows and isinstance(rows, list) and len(rows) > 0:
+                            rows_found = True
+                            for row in rows:
+                                company = row.get("company_name", "Unknown")
+                                plan = row.get("plan_name", "Unknown")
+                                input_price = row.get("input_tokens", "N/A")
+                                output_price = row.get("output_tokens", "N/A")
+                                print(
+                                    f"• {company}: {plan} - Input Tokens ${input_price}, Output Tokens ${output_price}"
+                                )
 
-                try:
-                    plans = json.loads(result_text)
-                    for plan in plans:
-                        print(
-                            f"  • {plan.get('company_name', 'N/A')}: "
-                            f"{plan.get('plan_name', 'N/A')} - Input: ${plan.get('input_tokens', 'N/A')}, "
-                            f"Output: ${plan.get('output_tokens', 'N/A')}"
-                        )
-                except json.JSONDecodeError:
-                    try:
-                        plans = ast.literal_eval(result_text)
-                        for plan in plans:
-                            print(
-                                f"  • {plan.get('company_name', 'N/A')}: "
-                                f"{plan.get('plan_name', 'N/A')} - Input: ${plan.get('input_tokens', 'N/A')}, "
-                                f"Output: ${plan.get('output_tokens', 'N/A')}"
-                            )
-                    except (ValueError, SyntaxError):
-                        print(result_text)
-            else:
-                print("  No pricing data found")
+            if not rows_found:
+                print("No pricing data stored yet.")
+                print("Use scrape commands to collect pricing data first.")
 
-            print("=" * 50)
+            print("=" * 60 + "\n")
 
         except Exception as e:
-            print(f"Error showing data: {e}")
-
-    async def start(self) -> None:
-        """Main entry point for the chat session."""
-        try:
-            # Initialise all servers
-            for server in self.servers:
-                try:
-                    await server.initialize()
-                    if "sqlite" in server.name.lower():
-                        self.sqlite_server = server
-                except Exception as e:
-                    logging.error(f"Failed to initialize server: {e}")
-                    await self.cleanup_servers()
-                    return
-
-            # Discover tools from each server
-            for server in self.servers:
-                tools = await server.list_tools()
-                self.available_tools.extend(tools)
-                for tool in tools:
-                    self.tool_to_server[tool["name"]] = server.name
-
-            print(f"\nConnected to {len(self.servers)} server(s)")
-            print(f"Available tools: {[tool['name'] for tool in self.available_tools]}")
-
-            if self.sqlite_server:
-                self.data_extractor = DataExtractor(self.sqlite_server, self.anthropic)
-                await self.data_extractor.setup_data_tables()
-                print("Data extraction enabled")
-
-            # Start the interactive loop
-            await self.chat_loop()
-
-        finally:
-            await self.cleanup_servers()
+            print(f"Error querying data: {e}")
 
 
-async def main() -> None:
-    """Initialise configuration and start the chat session."""
-    config = Configuration()
+async def main():
+    """Main entry point for the client application."""
+    # Load configuration
+    try:
+        config = Configuration.load_config("server_config.json")
+    except Exception as e:
+        print(f"Error loading configuration: {e}")
+        return
 
-    script_dir = Path(__file__).parent
-    config_file = script_dir / "server_config.json"
+    # Check for Anthropic API key
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("Error: ANTHROPIC_API_KEY not set in environment")
+        print("Please copy .env.example to .env and add your API keys")
+        return
 
-    server_config = config.load_config(config_file)
+    # Initialize Anthropic client
+    anthropic_client = Anthropic(api_key=api_key)
 
-    servers = [
-        Server(name, srv_config)
-        for name, srv_config in server_config["mcpServers"].items()
-    ]
-    chat_session = ChatSession(servers, config.anthropic_api_key)
-    await chat_session.start()
+    # Initialize servers
+    servers: dict[str, Server] = {}
+    exit_stack = AsyncExitStack()
+
+    try:
+        await exit_stack.__aenter__()
+
+        # Initialize each configured server
+        for server_name, server_config in config["mcpServers"].items():
+            try:
+                server = Server(server_name, server_config)
+                await server.initialize(exit_stack)
+                servers[server_name] = server
+                print(f"Connected to server: {server_name}")
+            except Exception as e:
+                logger.error(f"Failed to initialize server {server_name}: {e}")
+                print(f"Warning: Could not initialize {server_name}: {e}")
+
+        if not servers:
+            print("Error: No servers could be initialized")
+            return
+
+        # Create chat session
+        session = ChatSession(servers, anthropic_client)
+        await session.initialize_tools()
+
+        print("\n" + "=" * 60)
+        print("PriceScout - Competitor Pricing Intelligence")
+        print("=" * 60)
+        print("Commands:")
+        print("  - Type your query to analyze pricing")
+        print("  - 'show data' to see stored pricing records")
+        print("  - 'quit' or 'exit' to end the session")
+        print("=" * 60 + "\n")
+
+        # Interactive query loop
+        while True:
+            try:
+                user_input = input("Query: ").strip()
+
+                if not user_input:
+                    continue
+
+                if user_input.lower() in ["quit", "exit", "q"]:
+                    print("Goodbye!")
+                    break
+
+                if user_input.lower() == "show data":
+                    await session.show_stored_data()
+                    continue
+
+                # Process query through the LLM
+                print("\nProcessing...\n")
+                response = await session.process_query(user_input)
+                print(response)
+                print()
+
+            except KeyboardInterrupt:
+                print("\nGoodbye!")
+                break
+            except Exception as e:
+                logger.error(f"Error processing query: {e}")
+                print(f"\nError: {e}\n")
+
+    finally:
+        await exit_stack.__aexit__(None, None, None)
 
 
 if __name__ == "__main__":

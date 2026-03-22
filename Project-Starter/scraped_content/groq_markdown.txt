@@ -1,0 +1,102 @@
+Smart, Fast, and Affordable
+
+# Unmatched Price Performance
+
+Fast responses, scalable performance, and costs you can plan for.
+
+[Start Building](https://console.groq.com/)
+
+* * *
+
+## Large Language Models
+
+| AI Model | Current Speed(Tokens per Second) | Input Token Price(Per Million Tokens) | Output Token Price(Per Million Tokens) |
+| --- | --- | --- | --- |
+| AI Model<br>GPT OSS 20B 128k | Current Speed<br>1,000 TPS | Input Token Price(Per Million Tokens)<br>$0.075(13.3M / $1)\* | Output Token Price(Per Million Tokens)<br>$0.30(3.33M / $1)\* | [Try Now](https://console.groq.com/playground?model=openai/gpt-oss-120b) [Model Card](https://console.groq.com/docs/model/openai/gpt-oss-20b) |
+| AI Model<br>GPT OSS Safeguard 20B | Current Speed<br>1,000 TPS | Input Token Price(Per Million Tokens)<br>$0.075(13.3M / $1)\* | Output Token Price(Per Million Tokens)<br>$0.30(3.33M / $1)\* | [Try Now](https://console.groq.com/playground?model=openai/gpt-oss-120b) [Model Card](https://console.groq.com/docs/model/openai/gpt-oss-120b) |
+| AI Model<br>GPT OSS 120B 128k | Current Speed<br>500 TPS | Input Token Price(Per Million Tokens)<br>$0.15(6.67M / $1)\* | Output Token Price(Per Million Tokens)<br>$0.60(1.66M / $1)\* | [Try Now](https://console.groq.com/playground?model=openai/gpt-oss-120b) [Model Card](https://console.groq.com/docs/model/openai/gpt-oss-120b) |
+| AI Model<br>Kimi K2-0905 1T 256k | Current Speed<br>200 TPS | Input Token Price(Per Million Tokens)<br>$1.00(1M / $1)\* | Output Token Price(Per Million Tokens)<br>$3.00(333,333 / $1)\* | [Try Now](https://console.groq.com/playground?model=moonshotai/kimi-k2-instruct) [Model Card](https://console.groq.com/docs/model/moonshotai/kimi-k2-instruct-0905) |
+| AI Model<br>Llama 4 Scout (17Bx16E) 128k | Current Speed<br>594 TPS | Input Token Price(Per Million Tokens)<br>$0.11(9.09M / $1)\* | Output Token Price(Per Million Tokens)<br>$0.34(2.94M / $1)\* | [Try Now](https://console.groq.com/playground?model=meta-llama/llama-4-scout-17b-16e-instruct) [Model Card](https://console.groq.com/docs/model/meta-llama/llama-4-scout-17b-16e-instruct) |
+| AI Model<br>Qwen3 32B 131k | Current Speed<br>662 TPS | Input Token Price(Per Million Tokens)<br>$0.29(3.44M / $1)\* | Output Token Price(Per Million Tokens)<br>$0.59(1.69M / $1)\* | [Try Now](https://console.groq.com/playground?model=qwen/qwen3-32b) [Model Card](https://console.groq.com/docs/model/qwen/qwen3-32b) |
+| AI Model<br>Llama 3.3 70B Versatile 128k | Current Speed<br>394 TPS | Input Token Price(Per Million Tokens)<br>$0.59(1.69M / $1)\* | Output Token Price(Per Million Tokens)<br>$0.79(1.27M / $1)\* | [Try Now](https://console.groq.com/playground?model=llama-3.3-70b-versatile) [Model Card](https://console.groq.com/docs/model/llama-3.3-70b-versatile) |
+| AI Model<br>Llama 3.1 8B Instant 128k | Current Speed<br>840 TPS | Input Token Price(Per Million Tokens)<br>$0.05(20M / $1)\* | Output Token Price(Per Million Tokens)<br>$0.08(12.5M / $1)\* | [Try Now](https://console.groq.com/playground?model=llama-3.1-8b-instant) [Model Card](https://console.groq.com/docs/model/llama-3.1-8b-instant) |
+
+\*Approximate number of tokens per $
+
+## Text-to-Speech Models
+
+| AI Model | Characters /s | PricePrice (Per M Characters) |
+| --- | --- | --- |
+| AI Model<br>Canopy Labs Orpheus English | Characters /s<br>100 | Price<br>$22.00 | [Try Now](https://console.groq.com/playground?model=canopylabs/orpheus-v1-english) [Model Card](https://console.groq.com/docs/model/canopylabs/orpheus-v1-english) |
+| AI Model<br>Canopy Labs Orpheus Arabic Saudi | Characters /s<br>100 | Price<br>$40.00 | [Try Now](https://console.groq.com/playground?model=canopylabs/orpheus-arabic-saudi) [Model Card](https://console.groq.com/docs/model/canopylabs/orpheus-arabic-saudi) |
+
+## Automatic Speech Recognition (ASR) Models
+
+| AI Model | Speed Factor | Price(Per Hour Transcribed) |
+| --- | --- | --- |
+| AI Model<br>Whisper V3 Large | Speed Factor<br>217x | Price<br>$0.111\* | [Try Now](https://console.groq.com/playground?model=whisper-large-v3) [Model Card](https://console.groq.com/docs/model/whisper-large-v3) |
+| AI Model<br>Whisper Large v3 Turbo | Speed Factor<br>228x | Price<br>$0.04\* | [Try Now](https://console.groq.com/playground?model=whisper-large-v3-turbo) [Model Card](https://console.groq.com/docs/model/whisper-large-v3-turbo) |
+
+\*Audio is billed at a minimum of 10s per request.
+
+## Prompt Caching
+
+| Model | Uncached Input Tokens (Per M Tokens) | Cached Input Tokens (Per M Tokens) | Output Tokens (Per M Tokens) |
+| --- | --- | --- | --- |
+| Model<br>moonshotai/kimi-k2-instruct-0905 | Uncached Input Tokens (Per M Tokens)<br>$1.00 | Cached Input Tokens (Per M Tokens)<br>$0.50 | Output Tokens (Per M Tokens)<br>$3.00 |
+| Model<br>openai/gpt-oss-120b | Uncached Input Tokens (Per M Tokens)<br>$0.15 | Cached Input Tokens (Per M Tokens)<br>$0.075 | Output Tokens (Per M Tokens)<br>$0.60 |
+| Model<br>openai/gpt-oss-20b | Uncached Input Tokens (Per M Tokens)<br>$0.075 | Cached Input Tokens (Per M Tokens)<br>$0.0375 | Output Tokens (Per M Tokens)<br>$0.30 |
+
+Note: No extra fee for the caching feature itself. The discount only applies when a cache hit occurs.
+
+## Built-In Tools (Compound)
+
+| Tool | Price | Parameter |
+| --- | --- | --- |
+| Tool<br>Basic Search | Price<br>$5 / 1000 requests | Parameter<br>web\_search |
+| Tool<br>Advanced Search | Price<br>$8 / 1000 requests | Parameter<br>web\_search |
+| Tool<br>Visit Website | Price<br>$1 / 1000 requests | Parameter<br>visit\_website |
+| Tool<br>Code Execution | Price<br>$0.18 / hour | Parameter<br>code\_interpreter |
+| Tool<br>Browser Automation | Price<br>$0.08 / hour | Parameter<br>browser\_automation |
+
+## Built-In Tools (GPT-OSS)
+
+| Tool | Price | Parameter |
+| --- | --- | --- |
+| Tool<br>Browser Search - Basic Search | Price<br>$5 / 1000 requests | Parameter<br>browser\_search - browser.search |
+| Tool<br>Browser Search - Visit Website | Price<br>$1 / 1000 requests | Parameter<br>browser\_search - browser.open |
+| Tool<br>Code Execution - Python | Price<br>$0.18 / hour | Parameter<br>code\_interpreter - python |
+
+## About Our Pricing
+
+No Surprise Inference Bills
+
+Other inference providers spike costs without warning. Some hide behind elastic pricing. Groq pricing is linear and predictable, with no hidden costs or idle infrastructure. Every new user is growth, not risk, and you can keep margins secure.
+
+[Get started for free](https://console.groq.com/) and upgrade as your needs grow. View the pricing of our core models above and note all prices are in USD. Other models are available for specific customer requests including fine tuned models. Send us your inquiries [here](https://groq.com/enterprise-access).
+
+[Get Started](https://console.groq.com/)
+
+## Compound Systems
+
+Intelligent Tool Selection Across Multiple Models
+
+Compound AI systems are powered by multiple openly-available models already supported in GroqCloud to intelligently and selectively use tools to answer user queries, starting first with web search and code execution.Pricing is passed through to the underlying models and server side tools that are part of the compound AI system.
+
+[Read Documentation](https://console.groq.com/docs/compound/systems/compound-beta)
+
+## Batch API
+
+Process Large-Scale Workloads Asynchronously
+
+Batch processing lets you run thousands of API requests at scale by submitting your workload as an asynchronous batch of requests to Groq with 50% lower cost, no impact to your standard rate limits, and 24-hour to 7 day processing window.
+
+For enterprise API solutions or on-prem deployments, please fill out the form on our [Enterprise Access Page](https://groq.com/enterprise-access).
+
+[Learn More](https://groq.com/enterprise-access)
+
+## Build Fast
+
+Seamlessly integrate Groq starting with just a few lines of code
+
+[Try Groq for Free](https://console.groq.com/?utm_source=website&utm_medium=outbound_link&utm_campaign=dev_console_click)

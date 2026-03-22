@@ -1,0 +1,50 @@
+{
+  "cloudrift": {
+    "provider": "cloudrift",
+    "url": "https://www.cloudrift.ai/inference",
+    "domain": "www.cloudrift.ai",
+    "scrape_time": "2026-03-22T14:13:19.614846",
+    "content_files": {
+      "markdown": "cloudrift_markdown.txt",
+      "html": "cloudrift_html.txt"
+    },
+    "title": "AI Inference API \u2022 Low-Cost Llama 4 & DeepSeek Models | Cloudrift",
+    "description": "Stream Llama 4 Maverick, DeepSeek-V3, and other high-performance language models via Cloudrift\u2019s pay-as-you-go inference API. No queues, no GPU setup\u2014scale instantly and only pay for what you use."
+  },
+  "deepinfra": {
+    "provider": "deepinfra",
+    "url": "https://deepinfra.com/pricing",
+    "domain": "deepinfra.com",
+    "scrape_time": "2026-03-22T14:13:20.476209",
+    "content_files": {
+      "markdown": "deepinfra_markdown.txt",
+      "html": "deepinfra_html.txt"
+    },
+    "title": "Simple Pricing | Machine Learning Infrastructure | Deep Infra",
+    "description": "We provide only pay-what-you-use pricing with no long-term contracts or upfront costs for our machine learning models and infrastructure. Learn more!"
+  },
+  "fireworks": {
+    "provider": "fireworks",
+    "url": "https://fireworks.ai/pricing#serverless-pricing",
+    "domain": "fireworks.ai",
+    "scrape_time": "2026-03-22T14:13:21.168816",
+    "content_files": {
+      "markdown": "fireworks_markdown.txt",
+      "html": "fireworks_html.txt"
+    },
+    "title": "Fireworks - Pricing",
+    "description": "Choose the plan thats right for you."
+  },
+  "groq": {
+    "provider": "groq",
+    "url": "https://groq.com/pricing",
+    "domain": "groq.com",
+    "scrape_time": "2026-03-22T14:13:22.019550",
+    "content_files": {
+      "markdown": "groq_markdown.txt",
+      "html": "groq_html.txt"
+    },
+    "title": "Groq On-Demand Pricing for Tokens-as-a-Service | Groq is fast, low cost inference.",
+    "description": "Groq powers leading openly-available AI models. View the pricing of our core models including GPT-OSS, Kimi K2, Qwen3 32B, and more."
+  }
+}
