@@ -1,8 +1,12 @@
 {
     "cSpell.words": [
         "cloudrift",
+        "deepinfra",
+        "deepseek",
         "dotenv",
         "fastmcp",
-        "Firecrawl"
+        "Firecrawl",
+        "groq",
+        "pyproject"
     ]
 }
