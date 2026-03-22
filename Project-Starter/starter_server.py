@@ -1,100 +1,217 @@
+"""
+PriceScout MCP Server - Custom scraper server using Firecrawl
+
+This server provides two tools:
+1. scrape_websites - Scrapes competitor websites and saves content
+2. extract_scraped_info - Retrieves previously scraped data
+"""
 
 import os
 import json
 import logging
-from typing import List, Dict, Optional
-from firecrawl import FirecrawlApp
-from urllib.parse import urlparse
 from datetime import datetime
-from mcp.server.fastmcp import FastMCP
+from urllib.parse import urlparse
 
+from mcp.server.fastmcp import FastMCP
+from firecrawl import FirecrawlApp
 from dotenv import load_dotenv
 
+# Load environment variables from .env file
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure logging to see what's happening
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SCRAPE_DIR = "scraped_content"
-
+# Initialize the MCP server with a name
 mcp = FastMCP("llm_inference")
 
-@mcp.tool()
-def scrape_websites(
-    websites: Dict[str, str],
-    formats: List[str] = ['markdown', 'html'],
-    api_key: Optional[str] = None
-) -> List[str]:
-    """
-    Scrape multiple websites using Firecrawl and store their content.
-    
-    Args:
-        websites: Dictionary of provider_name -> URL mappings
-        formats: List of formats to scrape ['markdown', 'html'] (default: both)
-        api_key: Firecrawl API key (if None, expects environment variable)
-        
-    Returns:
-        List of provider names for successfully scraped websites
-    """
-    
-    if api_key is None:
-        api_key = os.getenv('FIRECRAWL_API_KEY')
-        if not api_key:
-            raise ValueError("API key must be provided or set as FIRECRAWL_API_KEY environment variable")
-    
-    app = FirecrawlApp(api_key=api_key)
-    
-    path = os.path.join(SCRAPE_DIR)
-    os.makedirs(path, exist_ok=True)
-    
-    # save the scraped content to files and then create scraped_metadata.json as a summary file
-    # check if the provider has already been scraped and decide if you want to overwrite
-    # {
-    #     "cloudrift_ai": {
-    #         "provider_name": "cloudrift_ai",
-    #         "url": "https://www.cloudrift.ai/inference",
-    #         "domain": "www.cloudrift.ai",
-    #         "scraped_at": "2025-10-23T00:44:59.902569",
-    #         "formats": [
-    #             "markdown",
-    #             "html"
-    #         ],
-    #         "success": "true",
-    #         "content_files": {
-    #             "markdown": "cloudrift_ai_markdown.txt",
-    #             "html": "cloudrift_ai_html.txt"
-    #         },
-    #         "title": "AI Inference",
-    #         "description": "Scraped content goes here"
-    #     }
-    # }
-    metadata_file = os.path.join(path, "scraped_metadata.json")
+# Initialize Firecrawl client with API key from environment
+firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
+if not firecrawl_api_key:
+    logger.warning("FIRECRAWL_API_KEY not set in environment")
+    app = None
+else:
+    app = FirecrawlApp(api_key=firecrawl_api_key)
 
-    # continue your solution here ...
+# Constants for file paths
+METADATA_FILE = "scraped_metadata.json"
+SCRAPE_DIR = "scraped_content"
+
+
+@mcp.tool()
+def scrape_websites(websites: dict[str, str], formats: list[str] = ["markdown", "html"]) -> list[str]:
+    """
+    Scrape competitor websites and save content to files.
+
+    Args:
+        websites: Dictionary mapping provider_name to URL
+                  Example: {'cloudrift': 'https://www.cloudrift.ai/inference'}
+        formats: List of formats to scrape (default: ['markdown', 'html'])
+
+    Returns:
+        List of successfully scraped provider names
+    """
+    if not app:
+        logger.error("Firecrawl API key not configured")
+        return []
+
+    # Ensure the scrape directory exists
+    if not os.path.exists(SCRAPE_DIR):
+        os.makedirs(SCRAPE_DIR)
+
+    # Load existing metadata or initialize empty dict
+    scraped_metadata = {}
+    if os.path.exists(METADATA_FILE):
+        try:
+            with open(METADATA_FILE, "r") as f:
+                scraped_metadata = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            scraped_metadata = {}
+
+    # Track successful scrapes
+    successful_scrapes = []
+
+    # Loop through each website to scrape
+    for provider_name, url in websites.items():
+        try:
+            logger.info(f"Scraping {provider_name}: {url}")
+
+            # Call Firecrawl API to scrape the URL
+            scrape_result = app.scrape(url, formats=formats)
+
+            # Handle both dict and object responses
+            if hasattr(scrape_result, 'model_dump'):
+                scrape_result = scrape_result.model_dump()
+            elif hasattr(scrape_result, '__dict__'):
+                scrape_result = vars(scrape_result)
+
+            # Extract domain from URL
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc
+
+            # Create metadata for this provider
+            metadata = {
+                "provider": provider_name,
+                "url": url,
+                "domain": domain,
+                "scrape_time": datetime.now().isoformat(),
+                "content_files": {},
+                "title": "",
+                "description": ""
+            }
+
+            # Check if scrape was successful
+            if scrape_result.get('success', True):  # Default True for backwards compatibility
+                # Save content for each format
+                for format_type in formats:
+                    content = scrape_result.get(format_type, "")
+                    if content:
+                        # Create filename: {provider}_{format}.txt
+                        filename = f"{provider_name}_{format_type}.txt"
+                        filepath = os.path.join(SCRAPE_DIR, filename)
+
+                        # Write content to file
+                        with open(filepath, "w", encoding="utf-8") as f:
+                            f.write(content)
+
+                        # Track the file in metadata
+                        metadata["content_files"][format_type] = filename
+
+                # Extract title and description from metadata if available
+                result_metadata = scrape_result.get("metadata", {})
+                metadata["title"] = result_metadata.get("title", "")
+                metadata["description"] = result_metadata.get("description", "")
+
+                # Add to successful scrapes
+                successful_scrapes.append(provider_name)
+                logger.info(f"Successfully scraped {provider_name}")
+
+            else:
+                # Log the error from scrape result
+                error_msg = scrape_result.get("error", "Unknown error")
+                logger.error(f"Failed to scrape {provider_name}: {error_msg}")
+
+            # Always add metadata entry (even if failed, for tracking)
+            scraped_metadata[provider_name] = metadata
+
+        except Exception as e:
+            logger.error(f"Error scraping {provider_name}: {e}")
+            # Still create a metadata entry to track the attempt
+            scraped_metadata[provider_name] = {
+                "provider": provider_name,
+                "url": url,
+                "domain": urlparse(url).netloc,
+                "scrape_time": datetime.now().isoformat(),
+                "content_files": {},
+                "title": "",
+                "description": "",
+                "error": str(e)
+            }
+
+    # Write updated metadata to file
+    with open(METADATA_FILE, "w") as f:
+        json.dump(scraped_metadata, f, indent=2)
+
+    logger.info(f"Scraping complete. Successfully scraped {len(successful_scrapes)} out of {len(websites)} websites.")
+
+    return successful_scrapes
+
 
 @mcp.tool()
 def extract_scraped_info(identifier: str) -> str:
     """
-    Extract information about a scraped website.
-    
+    Retrieve previously scraped data by provider name, URL, or domain.
+
     Args:
-        identifier: The provider name, full URL, or domain to look for
-        
+        identifier: Provider name, URL, or domain to search for
+
     Returns:
-        Formatted JSON string with the scraped information
+        JSON string with scraped content and metadata, or error message
     """
-    
-    logger.info(f"Extracting information for identifier: {identifier}")
-    logger.info(f"Files in {SCRAPE_DIR}: {os.listdir(SCRAPE_DIR)}")
+    try:
+        # Load metadata file
+        with open(METADATA_FILE, "r") as f:
+            scraped_metadata = json.load(f)
+    except FileNotFoundError:
+        return f"There's no saved information related to identifier '{identifier}'."
+    except json.JSONDecodeError:
+        return f"There's no saved information related to identifier '{identifier}'."
 
-    metadata_file = os.path.join(SCRAPE_DIR, "scraped_metadata.json")
-    logger.info(f"Checking metadata file: {metadata_file}")
+    # Search for a matching entry
+    for provider_name, metadata in scraped_metadata.items():
+        # Check if identifier matches provider name, URL, or domain
+        if (identifier.lower() == provider_name.lower() or
+            identifier == metadata.get("url", "") or
+            identifier == metadata.get("domain", "") or
+            identifier.lower() in metadata.get("url", "").lower() or
+            identifier.lower() in metadata.get("domain", "").lower()):
 
-    # contine your response here ...
+            # Found a match - make a copy to add content
+            result = metadata.copy()
 
+            # Load content from files if available
+            content_files = metadata.get("content_files", {})
+            if content_files:
+                result["content"] = {}
+
+                for format_type, filename in content_files.items():
+                    filepath = os.path.join(SCRAPE_DIR, filename)
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as f:
+                            result["content"][format_type] = f.read()
+                    except FileNotFoundError:
+                        result["content"][format_type] = "File not found"
+                    except Exception as e:
+                        result["content"][format_type] = f"Error reading file: {e}"
+
+            # Return formatted JSON string
+            return json.dumps(result, indent=2)
+
+    # No match found
+    return f"There's no saved information related to identifier '{identifier}'."
+
+
+# Run the server when this file is executed directly
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    mcp.run()

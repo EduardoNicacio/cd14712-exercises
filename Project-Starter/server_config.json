@@ -2,7 +2,7 @@
     "mcpServers": {        
         "llm_inference": {
             "command": "uv",
-            "args": ["run", "mcp-project/server.py"]
+            "args": ["run", "starter_server.py"]
         },
         "sqlite": {
             "command": "uvx",

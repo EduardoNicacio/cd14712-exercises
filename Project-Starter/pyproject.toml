@@ -1,7 +1,7 @@
 [project]
 name = "mcp-project"
 version = "0.1.0"
-description = "Add your description here"
+description = "Udacity PriceScout: The AI-Powered Competitor Analyst"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
